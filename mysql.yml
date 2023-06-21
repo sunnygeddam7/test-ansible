@@ -1,0 +1,96 @@
+---
+- name: Install and Configure MySQL
+  hosts: test
+  become: true
+  vars:
+    ansible_become_password: ansible
+  tasks:  
+
+    - name: update cache
+      apt:
+       update_cache: true
+
+    - name: install mysql
+      apt:
+        name: mysql-server
+        state : present
+
+    - name: install mysql client
+      apt:
+        name: mysql-client
+        state: present  
+
+    - name: Install pip
+      apt:
+        name: python3-pip
+        state: present
+
+    - name: Install PyMySQL
+      pip:
+        name: pymysql
+        state: present         
+
+    - name: Change MySQL Port Number
+      lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: '^port\s*=\s*3306'
+        line: 'port = 4306'
+    
+
+    - name: Verify MySQL Service Running
+      systemd:
+        name: mysql
+        state: restarted
+        enabled: yes     
+      register: mysql_status
+
+    - name: Display MySQL service status
+      debug:
+        msg: "MySQL service is {{ 'running' if mysql_status.changed else 'not running' }}"
+          
+    - name: Verify Port Status
+      wait_for:
+        host: localhost
+        port: 4306
+        state: started
+        timeout: 5
+
+    - name: Wait for MySQL port to become available
+      wait_for:
+        host: localhost
+        port: 4306
+        timeout: 10
+        state: started
+      register: mysql_port_status
+
+    - name: Display MySQL port status
+      debug:
+        msg: "MySQL port is {{ 'up' if mysql_port_status is succeeded else 'down' }}"    
+
+    - name: Create Database
+      mysql_db:
+        name: testdb
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        login_user: 'root'
+        login_password: ''
+        login_port: 4306  
+
+    - name: Create User and Grant Permissions
+      mysql_user:
+        name: sunny
+        password: sunny
+        priv: "*.*:ALL"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        login_user: 'root'
+        login_password: 'password'
+        login_port: 4306
+      
+    - name: check user can able to login or not
+      shell: |
+          mysql -u sunny -p'sunny' -P 4306 -D testdb -A -e"select now()" >/dev/null 2>&1
+      register: connection_result
+        
+    - name: display the user access to db
+      debug:
+        msg: "user acces to db {{ 'successful' if connection_result.rc == 0 else 'failed' }}" 
